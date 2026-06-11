@@ -153,12 +153,21 @@ POST /run-check    — trigger immediate scrape
 ## How It Works
 
 1. **Scheduler** fires every N minutes (default 60)
-2. Each **scraper** opens the pricing page headlessly via Playwright
-3. HTML is parsed by **BeautifulSoup**, noise stripped, text normalized
+2. Each **scraper** opens the pricing page headlessly via Playwright (or fetches via HTTP clients)
+3. HTML is parsed by **BeautifulSoup**, noise stripped, and text normalized
 4. A **SHA-256 hash** of the normalized text is compared to the previous snapshot
 5. If hashes differ → a **Change** record is written to SQLite
 6. A **Telegram alert** is sent with a diff summary
 7. The **dashboard** polls `/tools` and `/changes` every 60 seconds
+
+---
+
+## Key Features & Scraping Robustness
+
+*   **Dynamic DOM Selector Strategy**: Resolves pricing plans dynamically without hardcoded selectors. It matches target elements by expected plan names and walks up the DOM hierarchy to isolate the enclosing card while ignoring sibling card structures.
+*   **Dynamic JS Bundle & CDN Parsing**: Extracts SPA-heavy metadata (e.g. OpenAI, Perplexity) by downloading and parsing bundled JS files to retrieve raw Stripe/Tier prices directly, bypassing hydration delay races and Cloudflare blocks.
+*   **Dynamic UI Suffix Formatting**: Suffixes (like `/mo`, `/yr`, `/user/mo`) are dynamically rendered on the frontend based on the database's `billing_cycle` field, preventing hardcoded duplications and keeping clean raw data in SQLite.
+*   **Concurrency Throttling**: Checks are processed concurrently in the backend but throttled using `asyncio.Semaphore(2)` to avoid local CPU spikes and rate limits.
 
 ---
 
