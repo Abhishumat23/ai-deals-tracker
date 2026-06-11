@@ -185,7 +185,7 @@ BROWSER_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-async def fetch_html_with_retry(url: str, tool_name: str, retries: int = 2) -> Optional[str]:
+async def fetch_html_with_retry(url: str, tool_name: str, retries: int = 2, wait_selector: str = None) -> Optional[str]:
     """Fetch HTML with standard headers and retry logic for bot protection."""
     import asyncio
     # pyrefly: ignore [missing-import]
@@ -213,10 +213,16 @@ async def fetch_html_with_retry(url: str, tool_name: str, retries: int = 2) -> O
                     await asyncio.sleep(2)
                     continue
 
-                try:
-                    await page.wait_for_selector("main, article, section, #__next, .price", timeout=10_000)
-                except Exception:
-                    pass
+                if wait_selector:
+                    try:
+                        await page.wait_for_selector(wait_selector, timeout=15000)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await page.wait_for_selector("main, article, section, #__next, .price", timeout=10_000)
+                    except Exception:
+                        pass
                 
                 html = await page.content()
                 await browser.close()
@@ -228,17 +234,19 @@ async def fetch_html_with_retry(url: str, tool_name: str, retries: int = 2) -> O
 
 def _extract_precise_price(text: str) -> str:
     """Strict regex to pull out floating/integer values and currency symbols."""
-    # Match $ or ₹ followed by digits/commas/decimals
-    match = re.search(r"(\$|₹)\s*([\d,]+(?:\.\d+)?)", text)
+    # Match currency symbol ($, ₹, €, £) followed by digits/commas/decimals
+    match = re.search(r"(\$|₹|€|£)\s*([\d,]+(?:\.\d+)?)", text)
     if not match:
         if re.search(r"\bfree\b", text, re.IGNORECASE):
             return "free"
         return "Not found"
     
+    symbol = match.group(1)
     val_str = match.group(2).replace(",", "")
     try:
         val = float(val_str)
-        return f"${val:g}"
+        # Preserve the original currency symbol (e.g. ₹ or $)
+        return f"{symbol}{val:g}"
     except ValueError:
         return "Not found"
 
@@ -246,98 +254,157 @@ def extract_pricing_plans(soup, expected_tiers: list[str], anchors: Dict[str, st
     """
     Implements the strictly dynamic DOM selector strategy.
     Finds heading elements matching expected tier names, walks up to find the card,
-    slices the text from the anchor to avoid bleeding, and extracts price/features.
+    excluding adjacent cards, and extracts price/features.
     """
+    import copy
     noise_strings = ["Download", "Log in", "Sign up", "Get started", "Contact Sales"]
-    for tag in soup(["script", "style", "nav", "footer", "button", "a", "noscript"]):
+    
+    # We work on a copy of soup so decomposition doesn't break other logic
+    soup_copy = copy.copy(soup)
+    for tag in soup_copy(["script", "style", "nav", "footer", "noscript"]):
         tag.decompose()
         
     extracted = []
     if anchors is None:
         anchors = {}
         
+    # Helper to check if ancestor is a parent of node
+    def is_ancestor(ancestor, node):
+        curr = node.parent
+        while curr:
+            if curr == ancestor:
+                return True
+            curr = curr.parent
+        return False
+
+    def score_candidate(tag):
+        text_len = len(tag.get_text(strip=True))
+        has_btn = False
+        curr = tag
+        while curr:
+            if curr.name in ['button'] or curr.get('role') == 'tab':
+                has_btn = True
+                break
+            classes = curr.get('class', [])
+            if isinstance(classes, list):
+                if any('tab' in c.lower() for c in classes):
+                    has_btn = True
+                    break
+            elif isinstance(classes, str):
+                if 'tab' in classes.lower():
+                    has_btn = True
+                    break
+            curr = curr.parent
+        return (has_btn, text_len)
+
+    # 1. Find the target/heading nodes for each expected tier
+    tier_nodes = {}
+    for tier_name in expected_tiers:
+        elements = []
+        anchor_text = anchors.get(tier_name)
+        
+        # A. Try anchor text match first
+        if anchor_text:
+            elements = soup_copy.find_all(string=re.compile(re.escape(anchor_text), re.IGNORECASE))
+            elements = [el.parent for el in elements if el.parent]
+            
+        # B. Dynamically search for the tier name in headings/containers
+        if not elements:
+            elements = soup_copy.find_all(lambda t: t.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'span']
+                                     and t.string and tier_name.lower() == t.string.strip().lower())
+                                     
+        # C. Fallback: Just get any element containing the text
+        if not elements:
+            elements = soup_copy.find_all(string=re.compile(r'\b' + re.escape(tier_name) + r'(?:\b|\d|\*|\s)', re.IGNORECASE))
+            elements = [el.parent for el in elements if el.parent and el.parent.name not in ['body', 'html', 'main']]
+            
+        if elements:
+            # Pick the most tightly scoped element, prioritizing non-button/non-tab elements
+            target_node = min(elements, key=score_candidate)
+            tier_nodes[tier_name] = target_node
+
+    # 2. For each tier, resolve its card and parse its details
+    all_heading_nodes = list(tier_nodes.values())
+    
     for tier_name in expected_tiers:
         plan = PricingPlan(name=tier_name)
+        target_node = tier_nodes.get(tier_name)
         
-        try:
-            elements = []
-            anchor_text = anchors.get(tier_name)
+        if not target_node:
+            extracted.append(asdict(plan))
+            continue
             
-            # 1. Try anchor text match first
-            if anchor_text:
-                elements = soup.find_all(string=re.compile(re.escape(anchor_text), re.IGNORECASE))
-                elements = [el.parent for el in elements if el.parent]
+        try:
+            # Walk up to find the card container, stopping if we engulf other tiers' heading nodes
+            card = target_node
+            for _ in range(8):
+                parent = card.parent
+                if not parent or parent.name in ['body', 'html', 'main', 'section']:
+                    break
                 
-            # 2. Dynamically search for the tier name in headings/containers
-            if not elements:
-                elements = soup.find_all(lambda t: t.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'span']
-                                         and t.string and tier_name.lower() == t.string.strip().lower())
-                                         
-            # 3. Fallback: Just get any element containing the text
-            if not elements:
-                elements = soup.find_all(string=re.compile(r'\b' + re.escape(tier_name) + r'\b', re.IGNORECASE))
-                elements = [el.parent for el in elements if el.parent and el.parent.name not in ['body', 'html', 'main']]
+                # Check if this parent contains any other tier's target node
+                engulfed_other = False
+                for other_node in all_heading_nodes:
+                    if other_node != target_node and is_ancestor(parent, other_node):
+                        engulfed_other = True
+                        break
                 
-            if elements:
-                # Pick the most tightly scoped element
-                target_node = min(elements, key=lambda tag: len(tag.get_text(strip=True)))
+                if engulfed_other:
+                    break
+                card = parent
                 
-                # Walk up exactly 3 levels to get the column/card container
-                # Stop if we hit a known wrapper structure to avoid engulfing other columns
-                card = target_node
-                for _ in range(3):
-                    if card.parent and card.parent.name not in ['body', 'html', 'main', 'section']:
-                        card = card.parent
-                        
-                card_text = card.get_text(separator=" ", strip=True)
+            # Extract features list items first
+            lis = card.find_all('li')
+            features_list = [li.get_text(strip=True) for li in lis if li.get_text(strip=True)]
+            
+            # Make a copy of the card DOM and remove all <li> elements to get a clean text for price matching.
+            # This prevents matching numbers inside features (e.g. "5x usage", "20 hours") as price.
+            card_for_price = copy.deepcopy(card)
+            for li in card_for_price.find_all('li'):
+                li.decompose()
+            card_text_for_price = card_for_price.get_text(separator=" ", strip=True)
+            
+            # Raw text including features for other checks
+            card_text_full = card.get_text(separator=" ", strip=True)
+            
+            # Clean up noise strings
+            for noise in noise_strings:
+                card_text_for_price = re.sub(re.escape(noise), "", card_text_for_price, flags=re.IGNORECASE)
+                card_text_full = re.sub(re.escape(noise), "", card_text_full, flags=re.IGNORECASE)
                 
-                # Dynamic String Slicing: Only look for prices near the tier name
-                # This prevents picking up a $0 price from a "Free" column that happens to be an ancestor in flat SPAs
-                anchor_idx = -1
-                if anchor_text:
-                    anchor_idx = card_text.lower().find(anchor_text.lower())
-                if anchor_idx == -1:
-                    anchor_idx = card_text.lower().find(tier_name.lower())
+            plan.usd_price_str = _extract_precise_price(card_text_for_price)
+            
+            # Fallback: if not found in clean text, try full text
+            if plan.usd_price_str == "Not found":
+                plan.usd_price_str = _extract_precise_price(card_text_full)
                 
-                if anchor_idx != -1:
-                    # Keep up to 150 characters before the anchor in case the price is placed above the heading
-                    start_idx = max(0, anchor_idx - 150)
-                    card_text = card_text[start_idx:]
-                    
-                # Strip dynamic noise
-                for noise in noise_strings:
-                    card_text = re.sub(re.escape(noise), "", card_text, flags=re.IGNORECASE)
-                    
-                plan.usd_price_str = _extract_precise_price(card_text)
+            if plan.usd_price_str != "Not found":
+                plan.price = convert_to_inr(plan.usd_price_str)
+            elif "free" in card_text_full.lower() and tier_name.lower() not in ["team", "business", "enterprise"]:
+                plan.price = "Free"
                 
-                if plan.usd_price_str != "Not found":
-                    plan.price = convert_to_inr(plan.usd_price_str)
-                elif "free" in card_text.lower() and tier_name.lower() != "team":
-                    plan.price = "Free"
-                    
-                # Dynamic Billing Extraction
-                if re.search(r"/\s*(mo|month)\b", card_text, re.IGNORECASE):
-                    plan.billing_cycle = "monthly"
-                elif re.search(r"/\s*(yr|year|annually)\b", card_text, re.IGNORECASE):
-                    plan.billing_cycle = "annually"
-                elif plan.price == "Free" or plan.price == "₹0":
-                    plan.billing_cycle = "always"
-                    
-                # Dynamic Feature Extraction
-                lis = card.find_all('li')
-                if lis:
-                    plan.features = " | ".join([li.get_text(strip=True) for li in lis])
-                else:
-                    clean_text = re.sub(r'[^A-Za-z0-9\s,\.\-]', '', card_text)
-                    # Use up to 150 chars to avoid grabbing the whole page
-                    plan.features = clean_text[:150] + "..." if len(clean_text) > 150 else clean_text
-                    
+            # Dynamic Billing Extraction
+            if plan.price.lower() in ("free", "₹0"):
+                plan.billing_cycle = "always"
+            elif re.search(r"(?:/\s*|per\s+|a\s+)(?:mo|month)\b|monthly", card_text_full, re.IGNORECASE):
+                plan.billing_cycle = "monthly"
+            elif re.search(r"(?:/\s*|per\s+|a\s+)(?:yr|year)\b|annually", card_text_full, re.IGNORECASE):
+                plan.billing_cycle = "annually"
+                
+            # Dynamic Feature Extraction
+            if features_list:
+                plan.features = " | ".join(features_list)
+            else:
+                clean_text = re.sub(r'[^A-Za-z0-9\s,\.\-]', '', card_text_full)
+                plan.features = clean_text[:150] + "..." if len(clean_text) > 150 else clean_text
+                
         except Exception as e:
             pass # Fails safely to dataclass defaults
             
         extracted.append(asdict(plan))
         
     return extracted
+
 
 def truncate(text: str, max_chars: int = 500) -> str:
     """Truncate text to max_chars and append ellipsis if needed."""

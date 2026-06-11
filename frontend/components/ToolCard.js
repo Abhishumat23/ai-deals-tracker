@@ -41,12 +41,56 @@ function formatDate(iso) {
   });
 }
 
+function formatPriceDisplay(price, billingCycle) {
+  if (!price || price.toLowerCase() === "free" || price.toLowerCase() === "not found" || price.toLowerCase() === "see website") {
+    return price;
+  }
+  
+  // Strip any existing billing or unit suffixes (user, seat, mo, yr, etc.) to prevent duplicates
+  let cleanedPrice = price
+    .replace(/\/(user|seat|mo|month|yr|year)\b/ig, "")
+    .trim();
+    
+  if (cleanedPrice.endsWith("/")) {
+    cleanedPrice = cleanedPrice.slice(0, -1).trim();
+  }
+
+  if (billingCycle === "monthly") {
+    if (price.toLowerCase().includes("user")) {
+      return `${cleanedPrice}/user/mo`;
+    } else if (price.toLowerCase().includes("seat")) {
+      return `${cleanedPrice}/seat/mo`;
+    }
+    return `${cleanedPrice}/mo`;
+  } else if (billingCycle === "annually") {
+    if (price.toLowerCase().includes("user")) {
+      return `${cleanedPrice}/user/yr`;
+    } else if (price.toLowerCase().includes("seat")) {
+      return `${cleanedPrice}/seat/yr`;
+    }
+    return `${cleanedPrice}/yr`;
+  }
+  
+  return cleanedPrice;
+}
+
 export default function ToolCard({ tool }) {
   const borderColor = TOOL_COLORS[tool.tool_name] || "border-zinc-600";
   const dotColor = TOOL_DOT_COLORS[tool.tool_name] || "bg-zinc-500";
   const url = TOOL_URLS[tool.tool_name] || "#";
-  const tiers = tool.tiers || [];
-  const previousTiers = tool.previous_tiers || [];
+  
+  const rawTiers = tool.tiers || [];
+  const rawPreviousTiers = tool.previous_tiers || [];
+  
+  const tiers = rawTiers.map(t => ({
+    ...t,
+    price: formatPriceDisplay(t.price, t.billing_cycle)
+  }));
+  const previousTiers = rawPreviousTiers.map(t => ({
+    ...t,
+    price: formatPriceDisplay(t.price, t.billing_cycle)
+  }));
+  
   const hasPriceChange = previousTiers.length > 0 && JSON.stringify(tiers) !== JSON.stringify(previousTiers);
 
   return (

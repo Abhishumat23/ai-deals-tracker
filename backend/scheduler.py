@@ -52,17 +52,23 @@ async def run_single_scraper(tool_name: str, scrape_fn) -> None:
 
 async def run_all_scrapers() -> dict:
     """
-    Run all registered scrapers concurrently.
+    Run all registered scrapers with limited concurrency to avoid CPU overload.
     Returns a summary dict for the manual /run-check endpoint.
     """
     logger.info(f"[Scheduler] Starting check for {len(ALL_SCRAPERS)} tools")
 
+    sem = asyncio.Semaphore(2)
+
+    async def run_with_sem(tool_name, scrape_fn):
+        async with sem:
+            return await run_single_scraper(tool_name, scrape_fn)
+
     tasks = [
-        run_single_scraper(tool_name, scrape_fn)
+        run_with_sem(tool_name, scrape_fn)
         for tool_name, scrape_fn in ALL_SCRAPERS
     ]
 
-    # Run all scrapers concurrently; gather so we get all results
+    # Run all scrapers; gather so we get all results
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     summary = {

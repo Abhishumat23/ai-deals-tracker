@@ -1,6 +1,6 @@
 """
 Scraper for https://gemini.google/subscriptions/
-Extracts Gemini Advanced pricing strictly using dynamic DOM extraction.
+Extracts Gemini plan pricing strictly using dynamic DOM extraction.
 """
 
 import asyncio
@@ -18,18 +18,20 @@ logger = logging.getLogger(__name__)
 
 TOOL_NAME = "Gemini"
 URL = "https://gemini.google/subscriptions/"
-EXPECTED_TIERS = ["Free", "Google AI Plus", "Business", "Enterprise"]
+EXPECTED_TIERS = ["Free", "Google AI Plus", "Google AI Pro", "Google AI Ultra", "Business", "Enterprise"]
 
 ANCHORS = {
-    "Free": "Gemini",
-    "Google AI Plus": "Gemini Advanced",
-    "Business": "Gemini for Google Workspace",
-    "Enterprise": "Gemini Enterprise"
+    "Free": "Free of charge",
+    "Google AI Plus": "Google AI Plus",
+    "Google AI Pro": "Google AI Pro",
+    "Google AI Ultra": "Google AI Ultra",
+    "Business": "Business",
+    "Enterprise": "Enterprise"
 }
 
 async def scrape() -> Optional[dict]:
     """Main scrape entrypoint."""
-    html = await fetch_html_with_retry(URL, TOOL_NAME)
+    html = await fetch_html_with_retry(URL, TOOL_NAME, wait_selector="div[class*='_cardLogoText_']")
     if not html:
         return None
         
@@ -42,6 +44,7 @@ async def scrape() -> Optional[dict]:
 
     tiers = extract_pricing_plans(soup, EXPECTED_TIERS, ANCHORS)
 
+    # Standardize names/features if needed
     return {
         "tool": TOOL_NAME,
         "url": URL,
