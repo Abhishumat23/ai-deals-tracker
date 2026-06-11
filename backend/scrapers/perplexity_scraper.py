@@ -7,8 +7,10 @@ import asyncio
 import json
 import logging
 import re
+# pyrefly: ignore [missing-import]
 import httpx
 from typing import Optional
+# pyrefly: ignore [missing-import]
 from bs4 import BeautifulSoup
 import sys
 sys.path.append('.')
