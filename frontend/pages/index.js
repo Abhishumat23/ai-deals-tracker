@@ -23,12 +23,67 @@ function now() {
   });
 }
 
+function groupChangesByCompany(changesList) {
+  const grouped = {};
+  
+  // Process older first to let newer changes overwrite/merge
+  const list = [...changesList].reverse();
+  
+  for (const c of list) {
+    const company = c.company;
+    if (!grouped[company]) {
+      grouped[company] = {
+        company: company,
+        detected_at: c.detected_at,
+        timestamp: c.timestamp,
+        plans: {}
+      };
+    }
+    
+    grouped[company].detected_at = c.detected_at;
+    grouped[company].timestamp = c.timestamp;
+    
+    for (const chg of (c.changes || [])) {
+      const plan = chg.plan || "Plan";
+      const existing = grouped[company].plans[plan];
+      if (existing) {
+        grouped[company].plans[plan] = {
+          type: chg.type,
+          plan: plan,
+          old_price: existing.old_price !== null ? existing.old_price : chg.old_price,
+          new_price: chg.new_price
+        };
+      } else {
+        grouped[company].plans[plan] = {
+          type: chg.type,
+          plan: plan,
+          old_price: chg.old_price,
+          new_price: chg.new_price
+        };
+      }
+    }
+  }
+  
+  return Object.values(grouped)
+    .map(g => {
+      const plansList = Object.values(g.plans).filter(p => p.old_price !== p.new_price);
+      return {
+        ...g,
+        changes: plansList
+      };
+    })
+    .filter(g => g.changes.length > 0)
+    .sort((a, b) => new Date(b.detected_at) - new Date(a.detected_at));
+}
+
 export default function Dashboard() {
   const [tools, setTools] = useState([]);
   const [changes, setChanges] = useState([]);
   const [backendOk, setBackendOk] = useState(false);
   const [lastRefresh, setLastRefresh] = useState("");
   const [loading, setLoading] = useState(true);
+  
+  const groupedChanges = groupChangesByCompany(changes);
 
   const fetchData = useCallback(async () => {
     try {
@@ -131,16 +186,16 @@ export default function Dashboard() {
               <section>
                 <SectionLabel
                   label="detected changes"
-                  count={changes.length}
+                  count={groupedChanges.length}
                 />
-                {changes.length === 0 ? (
+                {groupedChanges.length === 0 ? (
                   <EmptyState
                     message="No changes detected yet. Changes appear here when pricing pages update."
                   />
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    {changes.map((c, i) => (
-                      <ChangeItem key={c.id} change={c} index={i} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {groupedChanges.map((c, i) => (
+                      <ChangeItem key={c.company} change={c} index={i} />
                     ))}
                   </div>
                 )}

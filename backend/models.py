@@ -40,6 +40,7 @@ class Change(Base):
     old_content = Column(Text, nullable=True)   # previous snapshot text
     new_content = Column(Text, nullable=True)   # new snapshot text
     summary = Column(Text, nullable=True)        # human-readable summary of what changed
+    structured_change_json = Column(Text, nullable=True)  # structured changes details in JSON
     detected_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self):

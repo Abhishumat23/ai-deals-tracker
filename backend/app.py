@@ -105,16 +105,27 @@ def _snapshot_to_dict(s: Snapshot) -> dict:
         "content_hash": s.content_hash,
         "prices_found": structured.get("prices_found", []),
         "tiers": structured.get("tiers", []),
-        "created_at": s.created_at.isoformat(),
+        "created_at": s.created_at.isoformat() + "Z",
     }
 
 
 def _change_to_dict(c: Change) -> dict:
+    import json
+    
+    changes_list = []
+    if c.structured_change_json:
+        try:
+            changes_list = json.loads(c.structured_change_json)
+        except Exception:
+            pass
+
     return {
         "id": c.id,
-        "tool_name": c.tool_name,
+        "company": c.tool_name,
+        "timestamp": c.detected_at.strftime("%Y-%m-%d"),
+        "detected_at": c.detected_at.isoformat() + "Z",
         "summary": c.summary,
-        "detected_at": c.detected_at.isoformat(),
+        "changes": changes_list
     }
 
 
@@ -171,10 +182,18 @@ def get_changes(
     changes = (
         db.query(Change)
         .order_by(Change.detected_at.desc())
-        .limit(limit)
         .all()
     )
-    return [_change_to_dict(c) for c in changes]
+    
+    result = []
+    for c in changes:
+        formatted = _change_to_dict(c)
+        if formatted.get("changes"):  # only include if actual price changes exist
+            result.append(formatted)
+            if len(result) >= limit:
+                break
+                
+    return result
 
 
 @app.get("/latest")
@@ -183,10 +202,18 @@ def get_latest(db: Session = Depends(get_db)):
     changes = (
         db.query(Change)
         .order_by(Change.detected_at.desc())
-        .limit(5)
         .all()
     )
-    return [_change_to_dict(c) for c in changes]
+    
+    result = []
+    for c in changes:
+        formatted = _change_to_dict(c)
+        if formatted.get("changes"):
+            result.append(formatted)
+            if len(result) >= 5:
+                break
+                
+    return result
 
 
 @app.post("/run-check")

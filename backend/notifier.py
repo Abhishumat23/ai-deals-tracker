@@ -35,7 +35,7 @@ def _build_message(change: Change) -> str:
     source_url = url_map.get(change.tool_name, "https://example.com")
 
     message = (
-        f"🚨 *AI Pricing Change Detected*\n\n"
+        f"*AI Pricing Change Detected*\n\n"
         f"*Tool:* {change.tool_name}\n"
         f"*Detected at:* {change.detected_at.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
         f"*Summary:*\n{summary}\n\n"
@@ -95,7 +95,7 @@ async def send_startup_message() -> bool:
     url = f"{TELEGRAM_API}/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "✅ *AI Deals Tracker started* — monitoring AI pricing pages.",
+        "text": "*AI Deals Tracker started* — monitoring AI pricing pages.",
         "parse_mode": "Markdown",
     }
 

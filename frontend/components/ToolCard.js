@@ -86,10 +86,16 @@ export default function ToolCard({ tool }) {
     ...t,
     price: formatPriceDisplay(t.price, t.billing_cycle)
   }));
-  const previousTiers = rawPreviousTiers.map(t => ({
-    ...t,
-    price: formatPriceDisplay(t.price, t.billing_cycle)
-  }));
+  const previousTiers = rawPreviousTiers.map(pt => {
+    const currentTier = rawTiers.find(t => t.name === pt.name);
+    const billingCycle = pt.billing_cycle && pt.billing_cycle !== "Unpublished"
+      ? pt.billing_cycle
+      : (currentTier ? currentTier.billing_cycle : "Unpublished");
+    return {
+      ...pt,
+      price: formatPriceDisplay(pt.price, billingCycle)
+    };
+  });
   
   const hasPriceChange = previousTiers.length > 0 && JSON.stringify(tiers) !== JSON.stringify(previousTiers);
 

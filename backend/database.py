@@ -28,6 +28,20 @@ def init_db():
     """Create all tables if they don't exist yet."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    
+    # Check if structured_change_json column exists in changes table, if not alter the table
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        columns = [col['name'] for col in inspector.get_columns('changes')]
+        if 'structured_change_json' not in columns:
+            from sqlalchemy import text
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE changes ADD COLUMN structured_change_json TEXT;"))
+                print("[DB] Added structured_change_json column to changes table")
+    except Exception as e:
+        print(f"[DB] Error running schema migration: {e}")
+        
     print(f"[DB] Initialized at {DB_PATH}")
 
 
