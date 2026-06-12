@@ -74,7 +74,7 @@ function formatPriceDisplay(price, billingCycle) {
   return cleanedPrice;
 }
 
-export default function ToolCard({ tool }) {
+export default function ToolCard({ tool, index = 0 }) {
   const borderColor = TOOL_COLORS[tool.tool_name] || "border-zinc-600";
   const dotColor = TOOL_DOT_COLORS[tool.tool_name] || "bg-zinc-500";
   const url = TOOL_URLS[tool.tool_name] || "#";
@@ -101,7 +101,8 @@ export default function ToolCard({ tool }) {
 
   return (
     <div
-      className={`bg-zinc-900 border-l-2 ${borderColor} rounded-r border border-l-0 border-zinc-800 p-4 flex flex-col gap-2`}
+      style={{ animationDelay: `${index * 50}ms` }}
+      className={`bg-zinc-900/40 backdrop-blur-md border-l-2 ${borderColor} rounded-r border border-l-0 border-zinc-900 p-4 flex flex-col gap-2 animate-fade-in-up hover:border-zinc-800 hover:shadow-xl hover:shadow-black/20 hover:-translate-y-0.5 transition-all duration-300`}
     >
       {/* Header row */}
       <div className="flex items-center justify-between">

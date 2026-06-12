@@ -175,8 +175,8 @@ export default function Dashboard() {
                   />
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {tools.map((t) => (
-                      <ToolCard key={t.tool_name} tool={t} />
+                    {tools.map((t, idx) => (
+                      <ToolCard key={t.tool_name} tool={t} index={idx} />
                     ))}
                   </div>
                 )}

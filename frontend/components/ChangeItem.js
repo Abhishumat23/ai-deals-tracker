@@ -151,7 +151,10 @@ export default function ChangeItem({ change, index }) {
   const source_url = url_map[company] || "#";
 
   return (
-    <div className="border border-zinc-900 bg-zinc-900/40 backdrop-blur-md hover:border-zinc-800 transition-all duration-300 rounded-lg p-5 flex flex-col justify-between gap-4 font-sans relative overflow-hidden">
+    <div
+      style={{ animationDelay: `${(index + 2) * 80}ms` }}
+      className="border border-zinc-900 bg-zinc-900/40 backdrop-blur-md hover:border-zinc-800 hover:shadow-xl hover:shadow-black/20 hover:-translate-y-0.5 transition-all duration-300 rounded-lg p-5 flex flex-col justify-between gap-4 font-sans relative overflow-hidden animate-fade-in-up"
+    >
       {/* Brand Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
